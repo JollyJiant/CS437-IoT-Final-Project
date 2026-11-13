@@ -1,4 +1,5 @@
 import asyncio
+import struct
 from bleak import BleakClient, BleakGATTCharacteristic
 from bleak.exc import BleakError
 
@@ -11,9 +12,17 @@ async def main(address):
         notification_received = asyncio.Event()
 
         def on_notification(sender: BleakGATTCharacteristic, data: bytearray):
-            value = int.from_bytes(data, "little", signed=False)
-            print(f"{sender.uuid}: {value}")
             notification_received.set()
+
+            accelerometer, gyroscope, magnetometer = struct.iter_unpack("<3f", data)
+            accel_x, accel_y, accel_z = accelerometer
+            gyro_x, gyro_y, gyro_z = gyroscope
+            mag_x, mag_y, mag_z = magnetometer
+
+            print(f"Accel X: {accel_x:.2f}  Y: {accel_y:.2f}  Z: {accel_z:.2f} m/s^2",)
+            print(f"Gyro X: {gyro_x:.2f}  Y: {gyro_y:.2f}  Z: {gyro_z:.2f} rad/s",)
+            print(f"Mag X: {mag_x:.2f}  Y: {mag_y:.2f}  Z: {mag_z:.2f} uT",)
+            print()
 
         try:
             async with BleakClient(address) as client:

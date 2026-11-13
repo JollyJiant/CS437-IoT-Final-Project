@@ -29,17 +29,6 @@ Adafruit_ICM20948 icm;
 void setup() {
   Serial.begin(115200);
 
-  // Wait for the serial monitor
-  unsigned long start = millis();
-  while (!Serial && millis() - start < 5000) delay(10);
-
-  //IMU set-up
-  Serial.println("Initializing the IMU");
-  if (!icm.begin_I2C()) {
-    Serial.println("Failed to find IMU");
-    while (1) delay(10);
-  }
-
   // BLE set-up
   BLEDevice::init(bleServerName);
   pServer = BLEDevice::createServer();
@@ -51,30 +40,47 @@ void setup() {
   BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
   pAdvertising->addServiceUUID(SERVICE_UUID);
   BLEDevice::startAdvertising();
+
+  // IMU set-up
+  Serial.println("Initializing the IMU");
+  if (!icm.begin_I2C()) {
+    Serial.println("Failed to find IMU");
+    while (1) delay(10);
+  }
 }
 
 void loop() {
-  // sensors_event_t accel, gyro, temp, mag;
-  // icm.getEvent(&accel, &gyro, &temp, &mag);
+  sensors_event_t accel, gyro, temp, mag;
+  icm.getEvent(&accel, &gyro, &temp, &mag);
 
-  // Serial.printf("Temp: %.1f C\n", temp.temperature);
-  // Serial.printf("Accel X: %.2f  Y: %.2f  Z: %.2f m/s^2\n",
-  //               accel.acceleration.x, accel.acceleration.y, accel.acceleration.z);
-  // Serial.printf("Gyro  X: %.2f  Y: %.2f  Z: %.2f rad/s\n",
-  //               gyro.gyro.x, gyro.gyro.y, gyro.gyro.z);
-  // Serial.printf("Mag   X: %.2f  Y: %.2f  Z: %.2f uT\n\n",
-  //               mag.magnetic.x, mag.magnetic.y, mag.magnetic.z);
+  Serial.printf("Accel X: %.2f  Y: %.2f  Z: %.2f m/s^2\n",
+                accel.acceleration.x, accel.acceleration.y, accel.acceleration.z);
+  Serial.printf("Gyro  X: %.2f  Y: %.2f  Z: %.2f rad/s\n",
+                gyro.gyro.x, gyro.gyro.y, gyro.gyro.z);
+  Serial.printf("Mag   X: %.2f  Y: %.2f  Z: %.2f uT\n",
+                mag.magnetic.x, mag.magnetic.y, mag.magnetic.z);
+  Serial.printf("\n");
 
-  // delay(100);
+  float imuData[9] {
+    accel.acceleration.x,
+    accel.acceleration.y,
+    accel.acceleration.z,
+    gyro.gyro.x,
+    gyro.gyro.y,
+    gyro.gyro.z,
+    mag.magnetic.x,
+    mag.magnetic.y,
+    mag.magnetic.z,
+  };
 
-  // notify changed value
+  // BLE notify
   if (pServer->getConnectedCount() > 0) {
-    pCharacteristic->setValue((uint8_t *)&value, 4);
+    // send the float array's raw bytes and byte length.
+    pCharacteristic->setValue(
+      reinterpret_cast<uint8_t *>(imuData), sizeof(imuData)
+    );
     pCharacteristic->notify();
-    Serial.println(value);
-    value++;
-    delay(500);
-  } else {
-    delay(100);
   }
+  
+  delay(1000);
 }
