@@ -12,6 +12,18 @@
 #define SERVICE_UUID        "ee00f67e-97ca-4c37-8b5e-2137fd7dbe83"
 #define CHARACTERISTIC_UUID "05ef3990-a968-4b05-81b0-550f9a8a1344"
 
+BLEServer *pServer = NULL;
+BLECharacteristic *pCharacteristic = NULL;
+uint32_t value = 0;
+
+class ServerCallbacks : public BLEServerCallbacks {
+public:
+  void onDisconnect(BLEServer *server) override {
+    Serial.println("BLE client disconnected; restarting advertising");
+    server->startAdvertising();
+  }
+};
+
 Adafruit_ICM20948 icm;
 
 void setup() {
@@ -30,13 +42,10 @@ void setup() {
 
   // BLE set-up
   BLEDevice::init(bleServerName);
-  BLEServer *pServer = BLEDevice::createServer();
+  pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new ServerCallbacks());
   BLEService *pService = pServer->createService(SERVICE_UUID);
-  BLECharacteristic *pCharacteristic = pService->createCharacteristic(
-    CHARACTERISTIC_UUID,
-    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE
-  );
-  pCharacteristic->setValue("Hello World!");
+  pCharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID, BLECharacteristic::PROPERTY_NOTIFY);
   pService->start();
 
   BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
@@ -58,5 +67,14 @@ void loop() {
 
   // delay(100);
 
-  delay(2000);
+  // notify changed value
+  if (pServer->getConnectedCount() > 0) {
+    pCharacteristic->setValue((uint8_t *)&value, 4);
+    pCharacteristic->notify();
+    Serial.println(value);
+    value++;
+    delay(500);
+  } else {
+    delay(100);
+  }
 }
