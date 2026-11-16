@@ -25,6 +25,8 @@ public:
 };
 
 Adafruit_ICM20948 icm;
+constexpr uint32_t SAMPLE_RATE_HZ = 10;
+constexpr uint32_t SAMPLE_PERIOD_MS = 1000 / SAMPLE_RATE_HZ;
 
 void setup() {
   Serial.begin(115200);
@@ -47,6 +49,13 @@ void setup() {
     Serial.println("Failed to find IMU");
     while (1) delay(10);
   }
+  
+  // Set IMU ranges and output data rates
+  icm.setAccelRange(ICM20948_ACCEL_RANGE_2_G);
+  icm.setGyroRange(ICM20948_GYRO_RANGE_250_DPS);
+  icm.setMagDataRate(AK09916_MAG_DATARATE_10_HZ);
+  icm.setAccelRateDivisor(111); // ~10.04 Hz
+  icm.setGyroRateDivisor(109);  // 10 Hz
 }
 
 void loop() {
@@ -82,5 +91,5 @@ void loop() {
     pCharacteristic->notify();
   }
   
-  delay(1000);
+  delay(SAMPLE_PERIOD_MS);
 }
