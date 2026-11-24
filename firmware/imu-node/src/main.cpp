@@ -4,7 +4,6 @@
 #include <Adafruit_ICM20948.h>
 #include <Adafruit_Sensor.h>
 #include <BLEDevice.h>
-#include <BLEUtils.h>
 #include <BLEServer.h>
 
 #define bleServerName "IMU_NODE_0"
@@ -14,7 +13,6 @@
 
 BLEServer *pServer = NULL;
 BLECharacteristic *pCharacteristic = NULL;
-uint32_t value = 0;
 
 class ServerCallbacks : public BLEServerCallbacks {
 public:
@@ -25,14 +23,31 @@ public:
 };
 
 Adafruit_ICM20948 icm;
+
+struct ImuPacket {
+  uint16_t batch_id;
+  uint16_t sample_id;
+  float imu[9];
+};
+
+uint16_t batch_id = 0;
+uint16_t sample_id = 0;
+
 constexpr uint32_t SAMPLE_RATE_HZ = 10;
 constexpr uint32_t SAMPLE_PERIOD_MS = 1000 / SAMPLE_RATE_HZ;
 
-void setup() {
-  Serial.begin(115200);
+constexpr uint32_t SEND_PERIOD_SECONDS = 1;
+constexpr size_t PACKETS_PER_BATCH = SAMPLE_RATE_HZ * SEND_PERIOD_SECONDS;
+constexpr size_t BUFFER_SIZE_BYTES = PACKETS_PER_BATCH * sizeof(ImuPacket);
+ImuPacket packetBuffer[PACKETS_PER_BATCH];
+size_t bufferedPackets = 0;
 
-  // BLE set-up
+constexpr uint16_t BLE_LOCAL_MTU = 517;
+
+void initializeBLE() {
   BLEDevice::init(bleServerName);
+  BLEDevice::setMTU(BLE_LOCAL_MTU);
+
   pServer = BLEDevice::createServer();
   pServer->setCallbacks(new ServerCallbacks());
   BLEService *pService = pServer->createService(SERVICE_UUID);
@@ -42,8 +57,9 @@ void setup() {
   BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
   pAdvertising->addServiceUUID(SERVICE_UUID);
   BLEDevice::startAdvertising();
+}
 
-  // IMU set-up
+void initializeIMU() {
   Serial.println("Initializing the IMU");
   if (!icm.begin_I2C()) {
     Serial.println("Failed to find IMU");
@@ -58,10 +74,11 @@ void setup() {
   icm.setGyroRateDivisor(109);  // 10 Hz
 }
 
-void loop() {
+ImuPacket readImuPacket() {
   sensors_event_t accel, gyro, temp, mag;
   icm.getEvent(&accel, &gyro, &temp, &mag);
 
+  Serial.printf("Batch: %d, Sample: %d\n", batch_id, sample_id);
   Serial.printf("Accel X: %.2f  Y: %.2f  Z: %.2f m/s^2\n",
                 accel.acceleration.x, accel.acceleration.y, accel.acceleration.z);
   Serial.printf("Gyro  X: %.2f  Y: %.2f  Z: %.2f rad/s\n",
@@ -70,26 +87,46 @@ void loop() {
                 mag.magnetic.x, mag.magnetic.y, mag.magnetic.z);
   Serial.printf("\n");
 
-  float imuData[9] {
-    accel.acceleration.x,
-    accel.acceleration.y,
-    accel.acceleration.z,
-    gyro.gyro.x,
-    gyro.gyro.y,
-    gyro.gyro.z,
-    mag.magnetic.x,
-    mag.magnetic.y,
-    mag.magnetic.z,
+  return {
+    batch_id,
+    sample_id,
+    {
+      accel.acceleration.x,
+      accel.acceleration.y,
+      accel.acceleration.z,
+      gyro.gyro.x,
+      gyro.gyro.y,
+      gyro.gyro.z,
+      mag.magnetic.x,
+      mag.magnetic.y,
+      mag.magnetic.z,
+    }
   };
+}
 
-  // BLE notify
-  if (pServer->getConnectedCount() > 0) {
-    // send the float array's raw bytes and byte length.
+void setup() {
+  Serial.begin(115200);
+  initializeBLE();
+  initializeIMU();
+}
+
+void loop() {
+  if (bufferedPackets == PACKETS_PER_BATCH) {
+    if (pServer->getConnectedCount() == 0) {
+      delay(SAMPLE_PERIOD_MS);
+      return;
+    }
+
     pCharacteristic->setValue(
-      reinterpret_cast<uint8_t *>(imuData), sizeof(imuData)
+      reinterpret_cast<uint8_t*>(packetBuffer), BUFFER_SIZE_BYTES
     );
     pCharacteristic->notify();
+
+    bufferedPackets = 0;
+    ++batch_id;
   }
-  
+
+  packetBuffer[bufferedPackets++] = readImuPacket();
+  ++sample_id;
   delay(SAMPLE_PERIOD_MS);
 }
