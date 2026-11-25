@@ -5,6 +5,7 @@ from bleak.exc import BleakError
 
 address = "C4:9E:7E:18:A6:A1"
 CHARACTERISTIC_UUID = "05ef3990-a968-4b05-81b0-550f9a8a1344"
+CONTROL_CHARACTERISTIC_UUID = "b4ca5883-0b7f-4f90-bd7d-9f876d85c821"
 NOTIFICATION_TIMEOUT_SECONDS = 3
 PACKET_FORMAT = "<HH3f3f3f"
 
@@ -34,6 +35,9 @@ async def main(address):
                 print(f"Connected to {address}")
                 await client.start_notify(CHARACTERISTIC_UUID, on_notification)
                 print("Subscribed to notifications")
+                await client.write_gatt_char(
+                    CONTROL_CHARACTERISTIC_UUID, b"READY", response=True
+                )
 
                 while True:
                     try:

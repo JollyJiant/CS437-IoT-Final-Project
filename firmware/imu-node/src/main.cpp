@@ -10,15 +10,30 @@
 
 #define SERVICE_UUID        "ee00f67e-97ca-4c37-8b5e-2137fd7dbe83"
 #define CHARACTERISTIC_UUID "05ef3990-a968-4b05-81b0-550f9a8a1344"
+#define CONTROL_CHARACTERISTIC_UUID "b4ca5883-0b7f-4f90-bd7d-9f876d85c821"
 
 BLEServer *pServer = NULL;
-BLECharacteristic *pCharacteristic = NULL;
+BLECharacteristic *pImuBatchCharacteristic = NULL;
+BLECharacteristic *pControlCharacteristic = NULL;
+bool clientReady = false;
 
 class ServerCallbacks : public BLEServerCallbacks {
 public:
   void onDisconnect(BLEServer *server) override {
+    clientReady = false;
     Serial.println("BLE client disconnected; restarting advertising");
     server->startAdvertising();
+  }
+};
+
+class ControlCallbacks : public BLECharacteristicCallbacks {
+public:
+  void onWrite(BLECharacteristic *characteristic) override {
+    String command = characteristic->getValue();
+
+    if (command == "READY") {
+      clientReady = true;
+    }
   }
 };
 
@@ -51,7 +66,15 @@ void initializeBLE() {
   pServer = BLEDevice::createServer();
   pServer->setCallbacks(new ServerCallbacks());
   BLEService *pService = pServer->createService(SERVICE_UUID);
-  pCharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID, BLECharacteristic::PROPERTY_NOTIFY);
+  pImuBatchCharacteristic = pService->createCharacteristic(
+    CHARACTERISTIC_UUID,
+    BLECharacteristic::PROPERTY_NOTIFY
+  );
+  pControlCharacteristic = pService->createCharacteristic(
+    CONTROL_CHARACTERISTIC_UUID,
+    BLECharacteristic::PROPERTY_WRITE
+  );
+  pControlCharacteristic->setCallbacks(new ControlCallbacks());
   pService->start();
 
   BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
@@ -104,6 +127,17 @@ ImuPacket readImuPacket() {
   };
 }
 
+void sendPacketBuffer() {
+  pImuBatchCharacteristic->setValue(
+    reinterpret_cast<uint8_t*>(packetBuffer),
+    BUFFER_SIZE_BYTES
+  );
+  pImuBatchCharacteristic->notify();
+
+  bufferedPackets = 0;
+  ++batch_id;
+}
+
 void setup() {
   Serial.begin(115200);
   initializeBLE();
@@ -111,22 +145,15 @@ void setup() {
 }
 
 void loop() {
-  if (bufferedPackets == PACKETS_PER_BATCH) {
-    if (pServer->getConnectedCount() == 0) {
-      delay(SAMPLE_PERIOD_MS);
-      return;
+  if (clientReady) {
+    if (bufferedPackets == PACKETS_PER_BATCH) {
+      sendPacketBuffer();
     }
 
-    pCharacteristic->setValue(
-      reinterpret_cast<uint8_t*>(packetBuffer), BUFFER_SIZE_BYTES
-    );
-    pCharacteristic->notify();
-
-    bufferedPackets = 0;
-    ++batch_id;
+    packetBuffer[bufferedPackets++] = readImuPacket();
+    ++sample_id;
   }
 
-  packetBuffer[bufferedPackets++] = readImuPacket();
-  ++sample_id;
+
   delay(SAMPLE_PERIOD_MS);
 }
