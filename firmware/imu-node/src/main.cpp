@@ -16,6 +16,7 @@ BLEServer *pServer = NULL;
 BLECharacteristic *pImuBatchCharacteristic = NULL;
 BLECharacteristic *pControlCharacteristic = NULL;
 bool clientReady = false;
+bool samplingStarted = false;
 
 class ServerCallbacks : public BLEServerCallbacks {
 public:
@@ -146,14 +147,18 @@ void setup() {
 
 void loop() {
   if (clientReady) {
+    samplingStarted = true;
+
     if (bufferedPackets == PACKETS_PER_BATCH) {
       sendPacketBuffer();
     }
 
     packetBuffer[bufferedPackets++] = readImuPacket();
-    ++sample_id;
   }
 
+  if (samplingStarted) {
+    ++sample_id;
+  }
 
   delay(SAMPLE_PERIOD_MS);
 }
